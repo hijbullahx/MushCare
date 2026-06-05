@@ -10,8 +10,8 @@
 
 // --- Actuator Pins ---
 #define PUMP_RELAY 23 
-#define FAN_RELAY 25  // Updated to safe GPIO pin
-#define LED_RELAY 26  // Updated to safe GPIO pin
+#define FAN_RELAY 13  
+#define LED_RELAY 14  
 #define BUZZ_RELAY 27 
 
 // 📘 2. Calibration Constants
