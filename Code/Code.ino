@@ -11,8 +11,8 @@
 #include <DHT.h>
 
 // 📘 2. Wi-Fi Credentials
-char ssid[] = "Hijbullah";     // Enter your Wi-Fi SSID
-char pass[] = "01748470965"; // Enter your Wi-Fi Password
+char ssid[] = "Hijbullah";     
+char pass[] = "01748470965"; 
 
 // 📘 3. Hardware Pin Definitions
 #define DHTPIN 15     
@@ -26,53 +26,59 @@ char pass[] = "01748470965"; // Enter your Wi-Fi Password
 #define LED_RELAY 26  
 #define BUZZ_RELAY 27 
 
-// 📘 4. Objects & Global Variables
+// 📘 4. Biological Thresholds (Optimized for Bangladesh Climate)
+const int MOISTURE_DRY = 40;       // % - Turn Pump ON
+const int MOISTURE_OPTIMAL = 65;   // % - Turn Pump OFF
+const float TEMP_HOT = 30.0;       // °C - Turn Fan ON 
+const float TEMP_COOL = 28.5;      // °C - Turn Fan OFF (Realistic for BD)
+const int CO2_HIGH = 800;          // PPM Raw - Turn Fan ON
+const int CO2_NORMAL = 600;        // PPM Raw - Turn Fan OFF
+const float ALARM_TEMP = 35.0;     // °C - Trigger Emergency Buzzer
+
+// 📘 5. Objects & Global Variables
 DHT dht(DHTPIN, DHTTYPE);
 BlynkTimer timer;
 const int AirValue = 3830;   
 const int WaterValue = 2050; 
 
-// System State Variables
-int isAutoMode = 1; // Default to Auto Mode ON (1)
+int isAutoMode = 1; // 1 = Auto Mode ON, 0 = Manual Mode ON
 
 // ---------------------------------------------------
 // ☁️ Phase A: Blynk Manual Override Functions
 // ---------------------------------------------------
 
-// V4: Auto/Manual Toggle
+// V4: Auto/Manual Toggle Button on App
 BLYNK_WRITE(V4) { 
   isAutoMode = param.asInt(); 
   if (isAutoMode == 1) {
-    Serial.println("🌐 CLOUD COMMAND: Switched to AUTO Mode");
+    Serial.println("🌐 CLOUD: System set to AUTO. AI taking over.");
   } else {
-    Serial.println("🌐 CLOUD COMMAND: Switched to MANUAL Mode");
+    Serial.println("🌐 CLOUD: System set to MANUAL. Waiting for user commands.");
+    // Safety feature: Turn all relays OFF when switching to manual
+    digitalWrite(PUMP_RELAY, HIGH);
+    digitalWrite(FAN_RELAY, HIGH);
+    digitalWrite(LED_RELAY, HIGH);
   }
 }
 
 // V5: Manual Pump Switch
 BLYNK_WRITE(V5) {
-  if (isAutoMode == 0) { // Only allow manual control if Auto is OFF
-    int pinValue = param.asInt();
-    digitalWrite(PUMP_RELAY, pinValue == 1 ? LOW : HIGH);
-    Serial.print("🌐 MANUAL Override -> Pump: "); Serial.println(pinValue == 1 ? "ON" : "OFF");
+  if (isAutoMode == 0) { 
+    digitalWrite(PUMP_RELAY, param.asInt() == 1 ? LOW : HIGH);
   }
 }
 
 // V6: Manual Fan Switch
 BLYNK_WRITE(V6) {
   if (isAutoMode == 0) {
-    int pinValue = param.asInt();
-    digitalWrite(FAN_RELAY, pinValue == 1 ? LOW : HIGH);
-    Serial.print("🌐 MANUAL Override -> Fan: "); Serial.println(pinValue == 1 ? "ON" : "OFF");
+    digitalWrite(FAN_RELAY, param.asInt() == 1 ? LOW : HIGH);
   }
 }
 
 // V7: Manual Grow Light Switch
 BLYNK_WRITE(V7) {
   if (isAutoMode == 0) {
-    int pinValue = param.asInt();
-    digitalWrite(LED_RELAY, pinValue == 1 ? LOW : HIGH);
-    Serial.print("🌐 MANUAL Override -> LED: "); Serial.println(pinValue == 1 ? "ON" : "OFF");
+    digitalWrite(LED_RELAY, param.asInt() == 1 ? LOW : HIGH);
   }
 }
 
@@ -90,7 +96,7 @@ void runMushCareRoutine() {
 
   if (isnan(humidity) || isnan(tempC)) {
     Serial.println("Error: Failed to read DHT!");
-    return; // Skip this cycle if sensor fails
+    return; 
   }
 
   // 2. Upload Telemetry to Blynk Cloud
@@ -103,33 +109,37 @@ void runMushCareRoutine() {
   Serial.print("Hum: "); Serial.print(humidity); Serial.print("% | Temp: "); Serial.print(tempC); Serial.println("°C");
   Serial.print("Moist: "); Serial.print(moisturePercent); Serial.print("% | CO2: "); Serial.println(rawGasValue);
 
-  // 4. Autonomous Logic Execution (Only if Auto Mode is ON)
+  // 4. Autonomous Logic Execution (ONLY runs if Auto Mode is Active)
   if (isAutoMode == 1) {
-    // Pump Logic
-    if (moisturePercent <= 40) {
+    
+    // --- MISTING PUMP LOGIC ---
+    if (moisturePercent <= MOISTURE_DRY) {
       digitalWrite(PUMP_RELAY, LOW); 
-    } else if (moisturePercent >= 65) {
+      Serial.println("   [AUTO] Substrate dry. Pump ON.");
+    } else if (moisturePercent >= MOISTURE_OPTIMAL) {
       digitalWrite(PUMP_RELAY, HIGH); 
     }
 
-    // Fan Logic 
-    if (tempC >= 29.0 || rawGasValue >= 800) {
+    // --- VENTILATION FAN LOGIC ---
+    if (tempC >= TEMP_HOT || rawGasValue >= CO2_HIGH) {
       digitalWrite(FAN_RELAY, LOW);
-    } else if (tempC <= 25.0 && rawGasValue < 600) {
+      Serial.println("   [AUTO] Heat/CO2 high. Fan ON.");
+    } else if (tempC <= TEMP_COOL && rawGasValue < CO2_NORMAL) {
       digitalWrite(FAN_RELAY, HIGH);
     }
 
-    // Grow Light Logic
-    if (lightState == HIGH) { 
+    // --- PHOTOPERIOD LIGHT LOGIC ---
+    if (lightState == HIGH) { // It is dark
       digitalWrite(LED_RELAY, LOW);
-    } else {
+    } else { // It is bright
       digitalWrite(LED_RELAY, HIGH);
     }
   }
 
-  // Emergency Buzzer (Always runs, even in manual mode, for safety)
-  if (tempC >= 35.0) {
+  // 5. Emergency Buzzer (Always runs for safety, even in Manual)
+  if (tempC >= ALARM_TEMP) {
     digitalWrite(BUZZ_RELAY, LOW);
+    Serial.println("   🚨 ALARM: CRITICAL TEMPERATURE!");
   } else {
     digitalWrite(BUZZ_RELAY, HIGH);
   }
@@ -138,11 +148,11 @@ void runMushCareRoutine() {
 }
 
 // ---------------------------------------------------
-// ⚙️ Phase C: System Setup & Loop
+// ⚙️ Phase C: System Setup
 // ---------------------------------------------------
 void setup() {
   Serial.begin(115200);
-  Serial.println("MushCare: Connecting to IoT Cloud...");
+  Serial.println("MushCare: Booting up IoT Core...");
   
   dht.begin();
   pinMode(SOIL_PIN, INPUT);
@@ -154,7 +164,7 @@ void setup() {
   pinMode(LED_RELAY, OUTPUT);
   pinMode(BUZZ_RELAY, OUTPUT);
 
-  // Force Relays OFF
+  // Force Relays OFF at startup
   digitalWrite(PUMP_RELAY, HIGH);
   digitalWrite(FAN_RELAY, HIGH);
   digitalWrite(LED_RELAY, HIGH);
@@ -163,12 +173,11 @@ void setup() {
   // Connect to WiFi and Blynk
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
   
-  // Set the routine to run every 2000 milliseconds (2 seconds)
+  // Run the routine every 2 seconds without freezing the ESP32
   timer.setInterval(2000L, runMushCareRoutine);
 }
 
 void loop() {
-  // The loop is completely empty except for these two core commands
   Blynk.run();
   timer.run();
 }
