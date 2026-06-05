@@ -1,28 +1,30 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 
-// --- DHT22 Sensor ---
+// --- Sensor Pins ---
 #define DHTPIN 15     
 #define DHTTYPE DHT22 
-DHT dht(DHTPIN, DHTTYPE);
-
-// --- Soil Moisture Sensor ---
 #define SOIL_PIN 33 
+#define LDR_PIN 32    // Digital LDR Pin
 
-// 📘 Calibration Constants
-const int AirValue = 3830;   // Raw value when completely dry
-const int WaterValue = 2050; // Raw value when submerged in water
+// --- Objects & Constants ---
+DHT dht(DHTPIN, DHTTYPE);
+const int AirValue = 3830;   
+const int WaterValue = 2050; 
 
 void setup() {
   Serial.begin(115200);
-
   Serial.println("MushCare: Sensors Initializing...");
+  
   dht.begin();
   pinMode(SOIL_PIN, INPUT);
+  
+  // Initialize LDR pin as a digital input
+  pinMode(LDR_PIN, INPUT); 
 }
 
 void loop() {
-  // --- DHT22 Reading ---
+  // 1. DHT22 Reading
   delay(2000); 
   float humidity = dht.readHumidity();
   float tempC = dht.readTemperature();
@@ -37,20 +39,26 @@ void loop() {
     Serial.println("°C");
   }
 
-  // --- Soil Moisture Reading & Mapping ---
+  // 2. Soil Moisture Reading
   int rawMoistureValue = analogRead(SOIL_PIN);
-  
-  // Convert raw value to percentage (0-100)
   int moisturePercent = map(rawMoistureValue, AirValue, WaterValue, 0, 100);
-  
-  // Prevent percentage from going out of bounds (e.g., -5% or 105%)
   moisturePercent = constrain(moisturePercent, 0, 100);
 
-  Serial.print("Raw Soil Data: ");
-  Serial.print(rawMoistureValue);
-  Serial.print("  |  Substrate Moisture: ");
+  Serial.print("Substrate Moisture: ");
   Serial.print(moisturePercent);
   Serial.println("%");
+
+  // 3. Digital LDR Light Reading
+  int lightState = digitalRead(LDR_PIN);
+  
+  // Note: Most digital LDR modules output HIGH (1) when it is DARK 
+  // and LOW (0) when it is BRIGHT. 
+  if (lightState == HIGH) {
+    Serial.println("Ambient Light: DARK 🌙 (Grow Lights will trigger here)");
+  } else {
+    Serial.println("Ambient Light: BRIGHT ☀️ (Grow Lights OFF)");
+  }
+  
   Serial.println("---------------------------------------------------");
 
   delay(1000);
