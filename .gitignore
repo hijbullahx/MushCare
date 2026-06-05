@@ -1,0 +1,23 @@
+# Arduino build artifacts
+build/
+*.hex
+*.elf
+*.bin
+*.map
+*.o
+*.d
+*.eep
+
+# Zip files of libraries
+*.zip
+
+# VS Code directory (if you want to keep settings local)
+.vscode/
+
+# ESP32 specific flash files
+*.partitions.bin
+*.bootloader.bin
+
+# OS generated files
+.DS_Store
+Thumbs.db
