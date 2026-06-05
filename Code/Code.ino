@@ -1,7 +1,7 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 
-// 📘 1. Hardware Pin Definitions
+// 📘 1. Pin Definitions
 #define DHTPIN 15     
 #define DHTTYPE DHT22 
 #define SOIL_PIN 33 
