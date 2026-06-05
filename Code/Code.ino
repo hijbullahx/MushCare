@@ -2,15 +2,12 @@
 #include <DHT.h>
 
 // 📘 1. Hardware Pin Definitions
-// --- Sensors ---
 #define DHTPIN 15     
 #define DHTTYPE DHT22 
 #define SOIL_PIN 33 
-#define LDR_PIN 32    // Digital LDR Pin
-#define MQ135_PIN 35  // MQ-135 Analog Pin (Using voltage divider)
-
-// --- Actuators ---
-#define PUMP_RELAY_PIN 23 // 5V Relay for the Water Pump
+#define LDR_PIN 32    
+#define MQ135_PIN 35  
+#define PUMP_RELAY_PIN 23 
 
 // 📘 2. Objects & Calibration Constants
 DHT dht(DHTPIN, DHTTYPE);
@@ -19,7 +16,7 @@ const int WaterValue = 2050;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("MushCare: Full System Initializing...");
+  Serial.println("MushCare: Smart Logic Initializing...");
   
   // --- Initialize Sensors ---
   dht.begin();
@@ -29,18 +26,13 @@ void setup() {
 
   // --- Initialize Actuators ---
   pinMode(PUMP_RELAY_PIN, OUTPUT);
-  
-  // ⚠️ Safety Protocol: Force relay OFF at startup
-  // Note: Most relay modules are "Active-Low" (HIGH = OFF, LOW = ON)
-  digitalWrite(PUMP_RELAY_PIN, HIGH);
+  digitalWrite(PUMP_RELAY_PIN, HIGH); // Force OFF at startup
 }
 
 void loop() {
   // ---------------------------------------------------
-  // 📘 Phase A: Data Acquisition (Sensors)
+  // 📘 Phase A: Data Acquisition
   // ---------------------------------------------------
-  
-  // 1. DHT22 Reading (Wait 2 seconds for sensor to stabilize)
   delay(2000); 
   float humidity = dht.readHumidity();
   float tempC = dht.readTemperature();
@@ -52,14 +44,11 @@ void loop() {
     Serial.print("%  |  Air Temp: "); Serial.print(tempC); Serial.println("°C");
   }
 
-  // 2. Substrate Moisture Reading
   int rawMoistureValue = analogRead(SOIL_PIN);
   int moisturePercent = map(rawMoistureValue, AirValue, WaterValue, 0, 100);
   moisturePercent = constrain(moisturePercent, 0, 100);
-  
   Serial.print("Substrate Moisture: "); Serial.print(moisturePercent); Serial.println("%");
 
-  // 3. Ambient Light Reading
   int lightState = digitalRead(LDR_PIN);
   if (lightState == HIGH) {
     Serial.println("Ambient Light: DARK 🌙");
@@ -67,20 +56,25 @@ void loop() {
     Serial.println("Ambient Light: BRIGHT ☀️");
   }
 
-  // 4. Air Quality (CO2) Reading
   int rawGasValue = analogRead(MQ135_PIN);
   Serial.print("Raw CO2/Gas Level: "); Serial.println(rawGasValue);
   
   // ---------------------------------------------------
-  // 📘 Phase B: Actuation Test (Relay)
+  // 📘 Phase B: Smart Actuation (Water Pump Logic)
   // ---------------------------------------------------
   
-  Serial.println("=> Actuation: Triggering Pump Relay ON");
-  digitalWrite(PUMP_RELAY_PIN, LOW); // Pulling pin to Ground closes the switch
-  delay(2000); // Hold it on for 2 seconds so you hear the click
-
-  Serial.println("=> Actuation: Triggering Pump Relay OFF");
-  digitalWrite(PUMP_RELAY_PIN, HIGH); // Pushing 3.3V opens the switch
+  // Apply Grey Oyster biological thresholds
+  if (moisturePercent <= 40) {
+    Serial.println("=> ALERT: Substrate DRY (<=40%). Misting Pump ON 💦");
+    digitalWrite(PUMP_RELAY_PIN, LOW); // Relay ON
+  } 
+  else if (moisturePercent >= 65) {
+    Serial.println("=> ALERT: Substrate OPTIMAL (>=65%). Misting Pump OFF 🛑");
+    digitalWrite(PUMP_RELAY_PIN, HIGH); // Relay OFF
+  } 
+  else {
+    Serial.println("=> STATUS: Moisture in acceptable range. Maintaining state.");
+  }
   
   Serial.println("---------------------------------------------------");
 }
