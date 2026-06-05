@@ -6,6 +6,7 @@
 #define DHTTYPE DHT22 
 #define SOIL_PIN 33 
 #define LDR_PIN 32    // Digital LDR Pin
+#define MQ135_PIN 35  // MQ-135 Analog Pin (Must use voltage divider!)
 
 // --- Objects & Constants ---
 DHT dht(DHTPIN, DHTTYPE);
@@ -14,13 +15,16 @@ const int WaterValue = 2050;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("MushCare: Sensors Initializing...");
+  Serial.println("MushCare: Full Sensor Array Initializing...");
   
   dht.begin();
   pinMode(SOIL_PIN, INPUT);
   
   // Initialize LDR pin as a digital input
   pinMode(LDR_PIN, INPUT); 
+
+  // Initialize MQ-135 pin as an analog input
+  pinMode(MQ135_PIN, INPUT);
 }
 
 void loop() {
@@ -58,6 +62,12 @@ void loop() {
   } else {
     Serial.println("Ambient Light: BRIGHT ☀️ (Grow Lights OFF)");
   }
+
+  // 4. MQ-135 Gas Reading
+  // Reads the analog voltage (0-4095) stepped down by the voltage divider
+  int rawGasValue = analogRead(MQ135_PIN);
+  Serial.print("Raw CO2/Gas Level: ");
+  Serial.println(rawGasValue);
   
   Serial.println("---------------------------------------------------");
 
