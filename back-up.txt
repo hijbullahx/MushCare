@@ -1,51 +1,92 @@
+// 📘 1. Blynk Cloud Credentials (Must be at the very top!)
+#define BLYNK_TEMPLATE_ID "TMPL6i1O063MX"
+#define BLYNK_TEMPLATE_NAME "MushCare Smart Farm"
+#define BLYNK_AUTH_TOKEN "cTnY0xmhE6fBFXVqzf8EkCHM1TgW21IR"
+#define BLYNK_PRINT Serial
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 
-// 📘 1. Hardware Pin Definitions
+// 📘 2. Wi-Fi Credentials
+char ssid[] = "";     
+char pass[] = ""; 
+
+// 📘 3. Hardware Pin Definitions
 #define DHTPIN 15     
 #define DHTTYPE DHT22 
 #define SOIL_PIN 33 
 #define LDR_PIN 32    
 #define MQ135_PIN 35  
 
-// --- Actuator Pins ---
 #define PUMP_RELAY 23 
-#define FAN_RELAY 13  
-#define LED_RELAY 14  
+#define FAN_RELAY 25  
+#define LED_RELAY 26  
 #define BUZZ_RELAY 27 
 
-// 📘 2. Calibration Constants
+// 📘 4. Biological Thresholds (Optimized for Bangladesh Climate)
+const int MOISTURE_DRY = 40;       // % - Turn Pump ON
+const int MOISTURE_OPTIMAL = 65;   // % - Turn Pump OFF
+const float TEMP_HOT = 30.0;       // °C - Turn Fan ON 
+const float TEMP_COOL = 28.5;      // °C - Turn Fan OFF (Realistic for BD)
+const int CO2_HIGH = 800;          // PPM Raw - Turn Fan ON
+const int CO2_NORMAL = 600;        // PPM Raw - Turn Fan OFF
+const float ALARM_TEMP = 35.0;     // °C - Trigger Emergency Buzzer
+
+// 📘 5. Objects & Global Variables
 DHT dht(DHTPIN, DHTTYPE);
+BlynkTimer timer;
 const int AirValue = 3830;   
 const int WaterValue = 2050; 
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("MushCare: Full System Autonomous Mode Initializing...");
-  
-  dht.begin();
-  pinMode(SOIL_PIN, INPUT);
-  pinMode(LDR_PIN, INPUT); 
-  pinMode(MQ135_PIN, INPUT);
+int isAutoMode = 1; // 1 = Auto Mode ON, 0 = Manual Mode ON
 
-  // Initialize all Actuators
-  pinMode(PUMP_RELAY, OUTPUT);
-  pinMode(FAN_RELAY, OUTPUT);
-  pinMode(LED_RELAY, OUTPUT);
-  pinMode(BUZZ_RELAY, OUTPUT);
+// ---------------------------------------------------
+// ☁️ Phase A: Blynk Manual Override Functions
+// ---------------------------------------------------
 
-  // Force all relays OFF at startup (Active-Low)
-  digitalWrite(PUMP_RELAY, HIGH);
-  digitalWrite(FAN_RELAY, HIGH);
-  digitalWrite(LED_RELAY, HIGH);
-  digitalWrite(BUZZ_RELAY, HIGH);
+// V4: Auto/Manual Toggle Button on App
+BLYNK_WRITE(V4) { 
+  isAutoMode = param.asInt(); 
+  if (isAutoMode == 1) {
+    Serial.println("🌐 CLOUD: System set to AUTO. AI taking over.");
+  } else {
+    Serial.println("🌐 CLOUD: System set to MANUAL. Waiting for user commands.");
+    // Safety feature: Turn all relays OFF when switching to manual
+    digitalWrite(PUMP_RELAY, HIGH);
+    digitalWrite(FAN_RELAY, HIGH);
+    digitalWrite(LED_RELAY, HIGH);
+  }
 }
 
-void loop() {
-  // ---------------------------------------------------
-  // 📘 Phase A: Data Acquisition
-  // ---------------------------------------------------
-  delay(2000); 
+// V5: Manual Pump Switch
+BLYNK_WRITE(V5) {
+  if (isAutoMode == 0) { 
+    digitalWrite(PUMP_RELAY, param.asInt() == 1 ? LOW : HIGH);
+  }
+}
+
+// V6: Manual Fan Switch
+BLYNK_WRITE(V6) {
+  if (isAutoMode == 0) {
+    digitalWrite(FAN_RELAY, param.asInt() == 1 ? LOW : HIGH);
+  }
+}
+
+// V7: Manual Grow Light Switch
+BLYNK_WRITE(V7) {
+  if (isAutoMode == 0) {
+    digitalWrite(LED_RELAY, param.asInt() == 1 ? LOW : HIGH);
+  }
+}
+
+// ---------------------------------------------------
+// 🧠 Phase B: The Main Sensor & Automation Loop
+// ---------------------------------------------------
+void runMushCareRoutine() {
+  // 1. Read Sensors
   float humidity = dht.readHumidity();
   float tempC = dht.readTemperature();
   int rawMoistureValue = analogRead(SOIL_PIN);
@@ -53,47 +94,90 @@ void loop() {
   int lightState = digitalRead(LDR_PIN);
   int rawGasValue = analogRead(MQ135_PIN);
 
-  // Print Telemetry
+  if (isnan(humidity) || isnan(tempC)) {
+    Serial.println("Error: Failed to read DHT!");
+    return; 
+  }
+
+  // 2. Upload Telemetry to Blynk Cloud
+  Blynk.virtualWrite(V0, tempC);
+  Blynk.virtualWrite(V1, humidity);
+  Blynk.virtualWrite(V2, moisturePercent);
+  Blynk.virtualWrite(V3, rawGasValue);
+
+  // 3. Print Local Telemetry
   Serial.print("Hum: "); Serial.print(humidity); Serial.print("% | Temp: "); Serial.print(tempC); Serial.println("°C");
-  Serial.print("Moisture: "); Serial.print(moisturePercent); Serial.print("% | CO2 Level: "); Serial.println(rawGasValue);
-  
-  // ---------------------------------------------------
-  // 📘 Phase B: Smart Actuation Logic
-  // ---------------------------------------------------
-  
-  // 1. Misting Pump Logic (Moisture)
-  if (moisturePercent <= 40) {
-    digitalWrite(PUMP_RELAY, LOW); 
-    Serial.println("-> Pump: ON 💦");
-  } else if (moisturePercent >= 65) {
-    digitalWrite(PUMP_RELAY, HIGH); 
+  Serial.print("Moist: "); Serial.print(moisturePercent); Serial.print("% | CO2: "); Serial.println(rawGasValue);
+
+  // 4. Autonomous Logic Execution (ONLY runs if Auto Mode is Active)
+  if (isAutoMode == 1) {
+    
+    // --- MISTING PUMP LOGIC ---
+    if (moisturePercent <= MOISTURE_DRY) {
+      digitalWrite(PUMP_RELAY, LOW); 
+      Serial.println("   [AUTO] Substrate dry. Pump ON.");
+    } else if (moisturePercent >= MOISTURE_OPTIMAL) {
+      digitalWrite(PUMP_RELAY, HIGH); 
+    }
+
+    // --- VENTILATION FAN LOGIC ---
+    if (tempC >= TEMP_HOT || rawGasValue >= CO2_HIGH) {
+      digitalWrite(FAN_RELAY, LOW);
+      Serial.println("   [AUTO] Heat/CO2 high. Fan ON.");
+    } else if (tempC <= TEMP_COOL && rawGasValue < CO2_NORMAL) {
+      digitalWrite(FAN_RELAY, HIGH);
+    }
+
+    // --- PHOTOPERIOD LIGHT LOGIC ---
+    if (lightState == HIGH) { // It is dark
+      digitalWrite(LED_RELAY, LOW);
+    } else { // It is bright
+      digitalWrite(LED_RELAY, HIGH);
+    }
   }
 
-  // 2. Fan Logic (Temperature & CO2 Priority)
-  // Triggers if Temp >= 29C OR if CO2 goes above baseline (approx 800+ raw analog)
-  if (tempC >= 29.0 || rawGasValue >= 800) {
-    digitalWrite(FAN_RELAY, LOW);
-    Serial.println("-> Fan: ON 💨 (Cooling/Exhaust active)");
-  } else if (tempC <= 25.0 && rawGasValue < 600) {
-    digitalWrite(FAN_RELAY, HIGH);
-  }
-
-  // 3. Grow Light Logic (Photoperiod)
-  if (lightState == HIGH) { // Dark environment detected
-    digitalWrite(LED_RELAY, LOW);
-    Serial.println("-> LED: ON 💡 (Providing Light)");
-  } else {
-    digitalWrite(LED_RELAY, HIGH);
-  }
-
-  // 4. Emergency Overrun Buzzer Logic
-  // Simple safety check: If temp gets dangerously high (>35C), sound alarm
-  if (tempC >= 35.0) {
+  // 5. Emergency Buzzer (Always runs for safety, even in Manual)
+  if (tempC >= ALARM_TEMP) {
     digitalWrite(BUZZ_RELAY, LOW);
-    Serial.println("-> BUZZER: ON 🚨 (CRITICAL TEMP ALERT!)");
+    Serial.println("   🚨 ALARM: CRITICAL TEMPERATURE!");
   } else {
     digitalWrite(BUZZ_RELAY, HIGH);
   }
   
   Serial.println("---------------------------------------------------");
+}
+
+// ---------------------------------------------------
+// ⚙️ Phase C: System Setup
+// ---------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  Serial.println("MushCare: Booting up IoT Core...");
+  
+  dht.begin();
+  pinMode(SOIL_PIN, INPUT);
+  pinMode(LDR_PIN, INPUT); 
+  pinMode(MQ135_PIN, INPUT);
+
+  pinMode(PUMP_RELAY, OUTPUT);
+  pinMode(FAN_RELAY, OUTPUT);
+  pinMode(LED_RELAY, OUTPUT);
+  pinMode(BUZZ_RELAY, OUTPUT);
+
+  // Force Relays OFF at startup
+  digitalWrite(PUMP_RELAY, HIGH);
+  digitalWrite(FAN_RELAY, HIGH);
+  digitalWrite(LED_RELAY, HIGH);
+  digitalWrite(BUZZ_RELAY, HIGH);
+
+  // Connect to WiFi and Blynk
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  
+  // Run the routine every 2 seconds without freezing the ESP32
+  timer.setInterval(2000L, runMushCareRoutine);
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
 }
