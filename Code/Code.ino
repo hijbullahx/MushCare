@@ -11,8 +11,8 @@
 #include <DHT.h>
 
 // 📘 2. Wi-Fi Credentials
-char ssid[] = "Hijbullah";     
-char pass[] = "01748470965"; 
+char ssid[] = "****";     
+char pass[] = "****"; 
 
 // 📘 3. Hardware Pin Definitions
 #define DHTPIN 15     
